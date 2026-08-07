@@ -1,2 +1,3 @@
-# ml-dl-tutorial
-Master's degree coursework and self-study notes, including machine learning and deep learning, featuring core concepts and hands-on code projects.
+# python
+
+- tutorial/：機器學習和深度學習於課程與自學之自編教程，2、4、5 未完。
