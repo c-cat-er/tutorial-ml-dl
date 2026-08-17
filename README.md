@@ -1,3 +1,3 @@
 # python
 
-- tutorial/：機器學習和深度學習於課程與自學之自編教程，2、4、5 未完。
+- tutorial/: Self-compiled tutorials on machine learning and deep learning based on coursework and independent study; however, Projects 2, 4, and 5 remain unfinished.
