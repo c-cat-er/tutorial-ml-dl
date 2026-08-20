@@ -1,187 +1,58 @@
-# 逐幀音素分類專案指南
+# 2. TIMIT Framewise Phoneme Classification System
 
-(README1 ChatGPT 5.5 重點摘要版)
+- version: p2_1
+- Ref: [prj-2-timi-framewise-phoneme-classification](https://docs.google.com/document/d/1I68MpI8M8ims4KFPOOrf7LirViSfuon0Mj7F-T6lMMg/edit?tab=t.0)
 
-## 1. 專案目標
+## 1. Project Overview
 
-- **任務**：逐幀音素分類 (Framewise Phoneme Classification)
-- **類型**：39 類多分類 (Multiclass Classification)
-- **輸入**：每個語音 frame 的 MFCC 特徵
-- **輸出**：預測該 frame 對應的音素 (39 類)
-
----
-
-## 2. 資料前處理
-
-### 語音切片
-
-- 使用 25 ms 視窗
-- 每 10 ms 移動一次
-
-### 特徵抽取 (MFCC)
-
-**流程**：
-
-1. Waveform
-2. DFT (傅立葉轉換)
-3. Mel Filter Bank
-4. Log
-5. DCT
-6. 得到 MFCC 特徵向量
+- Task Type: Framewise audio sequence multiclass classification (39 distinct phoneme classes).
+- Objective: Predict the corresponding phoneme class for each individual speech frame using Mel-Frequency Cepstral Coefficients (MFCC) extracted from the TIMIT corpus.
+- Evaluation Metric: Frame-level Classification Accuracy.
+- Key Components: Context Window Feature Concatenation, 5-Fold Cross-Validation, AdamW Optimizer, Label Smoothing, and Multi-Fold Logits Averaging Ensemble.
 
 ---
 
-## 3. Context Window (最重要)
+## 2. Data Architecture & Preprocessing
 
-由於單一 frame 資訊不足，因此加入前後資訊。
-
-**本作業設定**：
-
-- 前 5 frame + 當前 + 後 5 frame = 共 11 個 frame
-
-**維度計算**：
-
-- 若每個 frame 為 39 維：$11 \times 39 = 429$ 維
-- **模型輸入**：429 維
-- **Label**：只對應中間那一幀
+- Dataset Components:
+    - Training data: `train_11.npy` and target labels: `train_label_11.npy`.
+    - Unlabeled testing data: `test_11.npy`.
+- Context Window Configuration:
+    - Each temporal frame comprises a 39-dimensional MFCC feature vector.
+    - Symmetrically concatenates 5 preceding and 5 succeeding frames around the central frame (11 frames in total), resulting in a finalized input feature dimension of \(11 \times 39 = 429\).
+- Standardization Pipeline:
+    - Computes the mean (\(\mu \)) and standard deviation (\(\sigma \)) dynamically for each fold's training split to perform Z-score normalization.
+    - Exports normalization statistics per fold (`foldX_norm.npz`) to guarantee identical feature scaling during the inference stage.
 
 ---
 
-## 4. Dataset
+## 3. Model Architecture
 
-### 資料
-
-- **`train_11.npy`**
-    - 922,449 筆
-    - `shape=(N, 429)`
-- **`train_label_11.npy`**
-    - 39 類 Label
-- **`test_11.npy`**
-    - 307,483 筆
-    - 無 Label
-
-### 評估指標
-
-- Accuracy
+- Network Type: 5-layer Multilayer Perceptron (MLP) Classifier.
+- Structural Configuration:
+    - Input Layer: 429 dimensions.
+    - Hidden Layers: Sequential topology of \(429 \to 1024 \to 512 \to 256 \to 128\) mapped via `GELU` activation functions.
+    - Regularization: Integrates BatchNorm1d and progressive Dropout rates (\(0.4 \to 0.3 \to 0.3 \to 0.2\)) across hidden segments to prevent overfitting.
+    - Output Layer: Dense mapping from \(128 \to 39\) dimensions (corresponding to the 39 phoneme categories).
 
 ---
 
-## 5. Baseline 提升方向
+## 4. Training & Optimization Strategy
 
-依照難度：
-
-### (1) Simple Baseline
-
-- **先調**：Learning Rate
-
-### (2) Strong Baseline
-
-#### Model
-
-- 增加 Hidden Layer
-- 調整 Hidden Dimension
-- 激活函數：ReLU、LeakyReLU、Swish
-
-#### Training
-
-- Batch Size
-- Optimizer
-- Learning Rate Scheduler
-- Epoch
-
-#### 防止 Overfitting
-
-- BatchNorm
-- Dropout
-- Weight Decay
+- Optimizer & Loss Setup:
+    - Optimizer: `AdamW` with an initial learning rate \(lr = 5 \times 10^{-4}\) and weight decay coefficient of \(1 \times 10^{-4}\).
+    - Loss Function: `CrossEntropyLoss` combined with a Label Smoothing factor of \(0.1\) to avoid overconfident predictions.
+    - Learning Rate Scheduler: `ReduceLROnPlateau` monitoring validation loss (decay factor = \(0.5\), patience = \(6\) epochs).
+- Validation & Overfitting Controls:
+    - Robust Evaluation: Bound by a standard 5-Fold Cross-Validation scheme.
+    - Early Stopping: Triggers early termination if validation accuracy fails to improve for 20 consecutive epochs.
+    - Memory Management: Utilizes PyTorch `DataLoader` (`num_workers=4, pin_memory=True`) and invokes explicit garbage collection (`gc.collect()`) after completing each fold to clear GPU/RAM overhead.
 
 ---
 
-## 6. 最推薦的模型設定 (作者整理)
+## 5. Inference & Ensemble Pipeline
 
-### Network 架構
-
-429 → 1024 → 512 → 256 → 128 → 39
-
-- **Hidden Layer**：4~5 層
-- **Activation**：ReLU、LeakyReLU、Swish
-
----
-
-## 7. 推薦超參數
-
-| 參數            | 建議值 |
-| :-------------- | :----- |
-| Learning Rate   | 5e-4   |
-| Epoch           | 80     |
-| Batch Size      | 128    |
-| Weight Decay    | 5e-4   |
-| Optimizer       | AdamW  |
-| Label Smoothing | 0.1    |
-
----
-
-## 8. Learning Rate Scheduler
-
-- **建議**：ReduceLROnPlateau、CosineAnnealingLR
-- **搭配**：Early Stopping (patience=20)
-
----
-
-## 9. 防止 Overfitting
-
-建議加入：
-
-- BatchNorm
-- Dropout (0.2~0.5)
-- Weight Decay
-- Label Smoothing
-
----
-
-## 10. 執行流程
-
-建議步驟：
-
-1. 先跑一個 Fold
-2. 確認 Pipeline
-3. 再跑完整 5 Fold
-4. 每 Fold 清除 GPU 記憶體
-5. 最後做 Logits Average Ensemble
-
----
-
-## 11. 監控重點
-
-訓練時注意：
-
-- Val Accuracy 持續上升
-- **Train Acc ≫ Val Acc**：代表過擬合，需增加 Dropout / Weight Decay
-- **Val Loss 不下降**：需降低 Learning Rate 或增加 Epoch
-
----
-
-## 12. 可再提升的方法
-
-若有更多時間，可嘗試：
-
-- 將輸入 reshape 為 (11, 39)，改用 1D-CNN
-- 使用 Transformer Encoder
-- 調整 Label Smoothing (0.05 或 0.15)
-- 改用 CosineAnnealingLR
-
----
-
-## ★ 考試 / 實作必記重點
-
-- 輸入維度：429 ($11 \times 39$)
-- 39 類音素分類
-- Context Window：前 5 + 中 1 + 後 5
-- MFCC 流程：DFT → Mel Filter Bank → Log → DCT
-- 推薦模型：429 → 1024 → 512 → 256 → 128 → 39
-- 推薦 Optimizer：AdamW
-- 推薦 Learning Rate：5e-4
-- 推薦 Batch Size：128
-- 推薦 Epoch：80
-- 使用 BatchNorm、Dropout、Weight Decay、Early Stopping 防止過擬合
-- 可搭配 ReduceLROnPlateau 或 CosineAnnealingLR 提升訓練效果
+- Model Restoration: Sequentially loads the optimal state checkpoints saved from all training instances (`fold1_best.ckpt` to `fold5_best.ckpt`).
+- Normalized Inference: Normalizes the raw testing samples frame-by-frame using the corresponding fold-specific statistics (\(\mu \) and \(\sigma \)) prior to forward passes.
+- Logits Average Ensemble: Accumulates the unnormalized output logs (logits) from all 5 fold models, computes the arithmetic mean (`avg_logits`), and extracts final predictions via the `argmax` operation.
+- Output Export: Formats and flattens prediction outputs into a submission-ready CSV file named `prediction5.csv`.
